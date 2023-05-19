@@ -11,7 +11,8 @@ license-file = "LICENSE"
 keywords = ["zkSNARKs", "cryptography", "proofs"]
 
 [dependencies]
-bellperson = { version = "0.24", default-features = false }
+bellperson = { git = "https://github.com/vesselinux/bellperson", rev = "ee1d711", default-features = false}
+#bellperson = { version = "0.24", default-features = false }
 ff = { version = "0.12.0", features = ["derive"] }
 digest = "0.8.1"
 sha3 = "0.8.2"
