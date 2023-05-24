@@ -146,8 +146,8 @@ fn bench_recursive_snark(c: &mut Criterion) {
 	};
 
 
-    let mut group = c.benchmark_group(format!("NovaProve-Sha256-message-len-{}", circuit_primary.preimage.len()));
-    group.sample_size(10);
+//    let mut group = c.benchmark_group(format!("NovaProve-Sha256-message-len-{}", circuit_primary.preimage.len()));
+//    group.sample_size(10);
 
     // Produce public parameters
     let pp = PublicParams::<G1, G2, C1, C2>::setup(
@@ -155,19 +155,51 @@ fn bench_recursive_snark(c: &mut Criterion) {
 	TrivialTestCircuit::default(),
     );
 
-    group.bench_function("Prove", |b| {
-	b.iter(|| {
-            // produce a recursive SNARK for a step of the recursion
-            assert!(RecursiveSNARK::prove_step(
-		black_box(&pp),
-		black_box(None),
-		black_box(circuit_primary.clone()),
-		black_box(TrivialTestCircuit::default()),
-		black_box(vec![<G1 as Group>::Scalar::from(2u64)]),
-		black_box(vec![<G2 as Group>::Scalar::from(2u64)]),
-            )
-		    .is_ok());
-	})
-    });
-    group.finish();
+    println!(
+      "Number of constraints per step (primary circuit): {}",
+      pp.num_constraints().0
+    );
+    println!(
+      "Number of constraints per step (secondary circuit): {}",
+      pp.num_constraints().1
+    );
+
+    println!(
+      "Number of variables per step (primary circuit): {}",
+      pp.num_variables().0
+    );
+    println!(
+      "Number of variables per step (secondary circuit): {}",
+      pp.num_variables().1
+    );
+    
+    let num_steps = 10;
+    let sha256_circuits = (0..num_steps)
+        .map(|_| Sha256Circuit {
+	    preimage: vec![0u8; 64],
+	    digest: bytes_to_scalar(hex!(
+		"12df9ae4958c1957170f9b04c4bc00c27315c5d75a391f4b672f952842bfa5ac"
+	    )),	    
+      })
+      .collect::<Vec<_>>();
+
+    for (_i, circuit_primary) in sha256_circuits.iter().take(num_steps).enumerate() {
+	let mut group = c.benchmark_group(format!("NovaProve-Sha256-message-len-{}", circuit_primary.preimage.len()));
+	group.sample_size(10);
+	group.bench_function("Prove", |b| {
+	    b.iter(|| {
+		// produce a recursive SNARK for a step of the recursion
+		assert!(RecursiveSNARK::prove_step(
+		    black_box(&pp),
+		    black_box(None),
+		    black_box(circuit_primary.clone()),
+		    black_box(TrivialTestCircuit::default()),
+		    black_box(vec![<G1 as Group>::Scalar::from(2u64)]),
+		    black_box(vec![<G2 as Group>::Scalar::from(2u64)]),
+		)
+			.is_ok());
+	    })
+	});
+	group.finish();
+    }
 }
