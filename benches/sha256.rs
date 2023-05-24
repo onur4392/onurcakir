@@ -9,7 +9,8 @@ use ::bellperson::{
   gadgets::{
     boolean::{AllocatedBit, Boolean},
     num::{AllocatedNum, Num},
-    sha256::sha256,
+    //sha256::sha256,
+    sha256::sha256iterated,
     Assignment,
   },
   ConstraintSystem, SynthesisError,
@@ -34,87 +35,87 @@ struct Sha256Circuit<Scalar: PrimeField> {
 }
 
 impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<Scalar> {
-  fn arity(&self) -> usize {
-    1
-  }
-
-  fn synthesize<CS: ConstraintSystem<Scalar>>(
-    &self,
-    cs: &mut CS,
-    _z: &[AllocatedNum<Scalar>],
-  ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
-    let mut z_out: Vec<AllocatedNum<Scalar>> = Vec::new();
-
-    let bit_values: Vec<_> = self
-      .preimage
-      .clone()
-      .into_iter()
-      .flat_map(|byte| (0..8).map(move |i| (byte >> i) & 1u8 == 1u8))
-      .map(Some)
-      .collect();
-    assert_eq!(bit_values.len(), self.preimage.len() * 8);
-
-    let preimage_bits = bit_values
-      .into_iter()
-      .enumerate()
-      .map(|(i, b)| AllocatedBit::alloc(cs.namespace(|| format!("preimage bit {i}")), b))
-      .map(|b| b.map(Boolean::from))
-      .collect::<Result<Vec<_>, _>>()?;
-
-    let hash_bits = sha256(cs.namespace(|| "sha256"), &preimage_bits)?;
-
-    for (i, hash_bits) in hash_bits.chunks(256_usize).enumerate() {
-      let mut num = Num::<Scalar>::zero();
-      let mut coeff = Scalar::one();
-      for bit in hash_bits {
-        num = num.add_bool_with_coeff(CS::one(), bit, coeff);
-
-        coeff = coeff.double();
-      }
-
-      let hash = AllocatedNum::alloc(cs.namespace(|| format!("input {i}")), || {
-        Ok(*num.get_value().get()?)
-      })?;
-
-      // num * 1 = hash
-      cs.enforce(
-        || format!("packing constraint {i}"),
-        |_| num.lc(Scalar::one()),
-        |lc| lc + CS::one(),
-        |lc| lc + hash.get_variable(),
-      );
-      z_out.push(hash);
+    fn arity(&self) -> usize {
+	1
     }
 
-    // sanity check with the hasher
-    let mut hasher = Sha256::new();
-    hasher.update(&self.preimage);
-    let hash_result = hasher.finalize();
+    fn synthesize<CS: ConstraintSystem<Scalar>>(
+	&self,
+	cs: &mut CS,
+	_z: &[AllocatedNum<Scalar>],
+    ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
 
-    let mut s = hash_result
-      .iter()
-      .flat_map(|&byte| (0..8).rev().map(move |i| (byte >> i) & 1u8 == 1u8));
+	assert_eq!(self.preimage.len(), 64);
+	
+	let mut z_out: Vec<AllocatedNum<Scalar>> = Vec::new();
 
-    for b in hash_bits {
-      match b {
-        Boolean::Is(b) => {
-          assert!(s.next().unwrap() == b.get_value().unwrap());
-        }
-        Boolean::Not(b) => {
-          assert!(s.next().unwrap() != b.get_value().unwrap());
-        }
-        Boolean::Constant(_b) => {
-          panic!("Can't reach here")
-        }
-      }
+	let bit_values: Vec<_> =	  
+	    self.preimage.clone().into_iter().flat_map(|byte| (0..8).map(move |i| (byte >> i) & 1u8 == 1u8)).map(Some).collect();
+	assert_eq!(bit_values.len(), self.preimage.len() * 8);
+
+	let preimage_bits = bit_values
+	    .into_iter()
+	    .enumerate()
+	    .map(|(i, b)| AllocatedBit::alloc(cs.namespace(|| format!("preimage bit {i}")), b))
+	    .map(|b| b.map(Boolean::from))
+	    .collect::<Result<Vec<_>, _>>()?;
+
+//	let hash_bits = sha256(cs.namespace(|| "sha256"), &preimage_bits)?;
+	let ninterations: u32 = 3;
+	let hash_bits = sha256iterated(cs.namespace(|| "sha256"), &preimage_bits, ninterations)?;
+
+	for (i, hash_bits) in hash_bits.chunks(256_usize).enumerate() {
+	    let mut num = Num::<Scalar>::zero();
+	    let mut coeff = Scalar::one();
+	    for bit in hash_bits {
+		num = num.add_bool_with_coeff(CS::one(), bit, coeff);
+
+		coeff = coeff.double();
+	    }
+
+	    let hash = AllocatedNum::alloc(cs.namespace(|| format!("input {i}")), || {
+		Ok(*num.get_value().get()?)
+	    })?;
+
+	    // num * 1 = hash
+	    cs.enforce(
+		|| format!("packing constraint {i}"),
+		|_| num.lc(Scalar::one()),
+		|lc| lc + CS::one(),
+		|lc| lc + hash.get_variable(),
+	    );
+	    z_out.push(hash);
+	}
+
+	// sanity check with the hasher
+	let mut hasher = Sha256::new();
+	hasher.update(&self.preimage);
+	let hash_result = hasher.finalize();
+
+	let mut s = hash_result
+	    .iter()
+	    .flat_map(|&byte| (0..8).rev().map(move |i| (byte >> i) & 1u8 == 1u8));
+
+	for b in hash_bits {
+	    match b {
+		Boolean::Is(b) => {
+		    assert!(s.next().unwrap() == b.get_value().unwrap());
+		}
+		Boolean::Not(b) => {
+		    assert!(s.next().unwrap() != b.get_value().unwrap());
+		}
+		Boolean::Constant(_b) => {
+		    panic!("Can't reach here")
+		}
+	    }
+	}
+
+	Ok(z_out)
     }
 
-    Ok(z_out)
-  }
-
-  fn output(&self, _z: &[Scalar]) -> Vec<Scalar> {
-    vec![self.digest]
-  }
+    fn output(&self, _z: &[Scalar]) -> Vec<Scalar> {
+	vec![self.digest]
+    }
 }
 
 type C1 = Sha256Circuit<<G1 as Group>::Scalar>;
