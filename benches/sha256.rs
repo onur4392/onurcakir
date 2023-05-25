@@ -64,6 +64,8 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	let ninterations: u32 = 3;
 	let hash_bits = sha256iterated(cs.namespace(|| "sha256"), &preimage_bits, ninterations)?;
 
+	println!("hash_bits length {:?}", hash_bits.len());
+	
 	for (i, hash_bits) in hash_bits.chunks(256_usize).enumerate() {
 	    let mut num = Num::<Scalar>::zero();
 	    let mut coeff = Scalar::one();
@@ -96,7 +98,12 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	    .iter()
 	    .flat_map(|&byte| (0..8).rev().map(move |i| (byte >> i) & 1u8 == 1u8));
 
-	for b in hash_bits {
+	// truncate to the first 256 elements which corresponds to the
+	// first hash value returned by sha256iterated
+	let mut hash_bits_slice = hash_bits;
+	hash_bits_slice.truncate(256);
+
+	for b in &hash_bits_slice {
 	    match b {
 		Boolean::Is(b) => {
 		    assert!(s.next().unwrap() == b.get_value().unwrap());
@@ -110,6 +117,7 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	    }
 	}
 
+	println!("hash_bits_slice length {:?}", hash_bits_slice.len());
 	Ok(z_out)
     }
 
@@ -181,8 +189,8 @@ fn bench_recursive_snark(c: &mut Criterion) {
 		"12df9ae4958c1957170f9b04c4bc00c27315c5d75a391f4b672f952842bfa5ac"
 	    )),	    
       })
-      .collect::<Vec<_>>();
-
+	.collect::<Vec<_>>();
+/*    
     for (_i, circuit_primary) in sha256_circuits.iter().take(num_steps).enumerate() {
 	let mut group = c.benchmark_group(format!("NovaProve-Sha256-message-len-{}", circuit_primary.preimage.len()));
 	group.sample_size(10);
@@ -201,5 +209,6 @@ fn bench_recursive_snark(c: &mut Criterion) {
 	    })
 	});
 	group.finish();
-    }
+}
+*/    
 }
