@@ -34,6 +34,11 @@ struct Sha256Circuit<Scalar: PrimeField> {
   digest: Scalar,
 }
 
+struct Sha256CircuitIterated<Scalar: PrimeField> {
+  preimage: Vec<u8>,
+  digest: Vec<Scalar>,
+}
+
 impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<Scalar> {
     fn arity(&self) -> usize {
 	1
@@ -118,6 +123,7 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	}
 
 	println!("hash_bits_slice length {:?}", hash_bits_slice.len());
+	println!("z_out length {:?}", z_out.len());
 	Ok(z_out)
     }
 
@@ -151,9 +157,13 @@ fn bench_recursive_snark(c: &mut Criterion) {
 	    digest: bytes_to_scalar(hex!(
 		"12df9ae4958c1957170f9b04c4bc00c27315c5d75a391f4b672f952842bfa5ac"
 	    )),
+	    //digest: vec![bytes_to_scalar(hex!(
+	    //	"12df9ae4958c1957170f9b04c4bc00c27315c5d75a391f4b672f952842bfa5ac"
+	    //)); 3],
 	};
 
-
+    // let vec = vec![0; 5];
+    
 //    let mut group = c.benchmark_group(format!("NovaProve-Sha256-message-len-{}", circuit_primary.preimage.len()));
 //    group.sample_size(10);
 
@@ -162,7 +172,6 @@ fn bench_recursive_snark(c: &mut Criterion) {
 	circuit_primary.clone(),
 	TrivialTestCircuit::default(),
     );
-
     println!(
       "Number of constraints per step (primary circuit): {}",
       pp.num_constraints().0
@@ -180,7 +189,7 @@ fn bench_recursive_snark(c: &mut Criterion) {
       "Number of variables per step (secondary circuit): {}",
       pp.num_variables().1
     );
-    
+    /*
     let num_steps = 10;
     let sha256_circuits = (0..num_steps)
         .map(|_| Sha256Circuit {
@@ -189,26 +198,25 @@ fn bench_recursive_snark(c: &mut Criterion) {
 		"12df9ae4958c1957170f9b04c4bc00c27315c5d75a391f4b672f952842bfa5ac"
 	    )),	    
       })
-	.collect::<Vec<_>>();
-/*    
-    for (_i, circuit_primary) in sha256_circuits.iter().take(num_steps).enumerate() {
-	let mut group = c.benchmark_group(format!("NovaProve-Sha256-message-len-{}", circuit_primary.preimage.len()));
-	group.sample_size(10);
-	group.bench_function("Prove", |b| {
-	    b.iter(|| {
-		// produce a recursive SNARK for a step of the recursion
-		assert!(RecursiveSNARK::prove_step(
-		    black_box(&pp),
-		    black_box(None),
-		    black_box(circuit_primary.clone()),
-		    black_box(TrivialTestCircuit::default()),
-		    black_box(vec![<G1 as Group>::Scalar::from(2u64)]),
-		    black_box(vec![<G2 as Group>::Scalar::from(2u64)]),
-		)
-			.is_ok());
-	    })
-	});
-	group.finish();
-}
-*/    
+    .collect::<Vec<_>>();
+    */
+    /*    
+    let mut group = c.benchmark_group(format!("NovaProve-Sha256-message-len-{}", circuit_primary.preimage.len()));
+    group.sample_size(10);
+    group.bench_function("Prove", |b| {
+	b.iter(|| {
+	    // produce a recursive SNARK for a step of the recursion
+	    assert!(RecursiveSNARK::prove_step(
+		black_box(&pp),
+		black_box(None),
+		black_box(circuit_primary.clone()),
+		black_box(TrivialTestCircuit::default()),
+		black_box(vec![<G1 as Group>::Scalar::from(2u64)]),
+		black_box(vec![<G2 as Group>::Scalar::from(2u64)]),
+	    )
+		    .is_ok());
+	})
+    });
+    group.finish();
+    */
 }
