@@ -28,13 +28,43 @@ use sha2::{Digest, Sha256};
 use criterion::*;
 use core::time::Duration;
 
+use crate::traits::{ROCircuitTrait, ROConstantsTrait, ROTrait};
+use generic_array::typenum::U24;
+use neptune::{
+  circuit2::Elt,
+  poseidon::PoseidonConstants,
+  sponge::{
+    api::{IOPattern, SpongeAPI, SpongeOp},
+    circuit::SpongeCircuit,
+    vanilla::{Mode::Simplex, Sponge, SpongeTrait},
+  },
+  Strength,
+};
+
+#[derive(Clone)]
+pub struct PoseidonConstantsCircuit<Scalar: PrimeField>(PoseidonConstants<Scalar, U24>);
+
+impl<Scalar> ROConstantsTrait<Scalar> for PoseidonConstantsCircuit<Scalar>
+where
+  Scalar: PrimeField + PrimeFieldBits,
+{
+  /// Generate Poseidon constants
+  #[allow(clippy::new_without_default)]
+  fn new() -> Self {
+    Self(Sponge::<Scalar, U24>::api_constants(Strength::Standard))
+  }
+}
+
+const NITERATIONS: u32 = 3;
+
 #[derive(Clone, Debug)]
-struct Sha256Circuit<Scalar: PrimeField> {
+struct Sha256CircuitOrig<Scalar: PrimeField> {
   preimage: Vec<u8>,
   digest: Scalar,
 }
 
-struct Sha256CircuitIterated<Scalar: PrimeField> {
+#[derive(Clone, Debug)]
+struct Sha256Circuit<Scalar: PrimeField> {
   preimage: Vec<u8>,
   digest: Vec<Scalar>,
 }
@@ -50,7 +80,7 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	_z: &[AllocatedNum<Scalar>],
     ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
 
-	assert_eq!(self.preimage.len(), 64);
+	assert_eq!(self.preimage.len(), 64 * (NITERATIONS as usize));
 	
 	let mut z_out: Vec<AllocatedNum<Scalar>> = Vec::new();
 
@@ -66,8 +96,8 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	    .collect::<Result<Vec<_>, _>>()?;
 
 //	let hash_bits = sha256(cs.namespace(|| "sha256"), &preimage_bits)?;
-	let ninterations: u32 = 3;
-	let hash_bits = sha256iterated(cs.namespace(|| "sha256"), &preimage_bits, ninterations)?;
+	let niterations: u32 = NITERATIONS;
+	let hash_bits = sha256iterated(cs.namespace(|| "sha256"), &preimage_bits, niterations)?;
 
 	println!("hash_bits length {:?}", hash_bits.len());
 	
@@ -93,6 +123,9 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	    );
 	    z_out.push(hash);
 	}
+
+	// apply Poseidon
+        let constants = PoseidonConstantsCircuit::new();
 
 	// sanity check with the hasher
 	let mut hasher = Sha256::new();
@@ -128,7 +161,8 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
     }
 
     fn output(&self, _z: &[Scalar]) -> Vec<Scalar> {
-	vec![self.digest]
+	//vec![self.digest]
+	self.digest.clone()
     }
 }
 
@@ -153,13 +187,10 @@ fn bench_recursive_snark(c: &mut Criterion) {
     // Test vectors
     let circuit_primary =
 	Sha256Circuit {
-	    preimage: vec![0u8; 64],
-	    digest: bytes_to_scalar(hex!(
+	    preimage: vec![0u8; 64 * (NITERATIONS as usize)],
+	    digest: vec![bytes_to_scalar(hex!(
 		"12df9ae4958c1957170f9b04c4bc00c27315c5d75a391f4b672f952842bfa5ac"
-	    )),
-	    //digest: vec![bytes_to_scalar(hex!(
-	    //	"12df9ae4958c1957170f9b04c4bc00c27315c5d75a391f4b672f952842bfa5ac"
-	    //)); 3],
+	    )); NITERATIONS as usize],
 	};
 
     // let vec = vec![0; 5];
