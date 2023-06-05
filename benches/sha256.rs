@@ -28,7 +28,8 @@ use sha2::{Digest, Sha256};
 use criterion::*;
 use core::time::Duration;
 
-use crate::traits::{ROCircuitTrait, ROConstantsTrait, ROTrait};
+// use crate::traits::{ROCircuitTrait, ROConstantsTrait, ROTrait};
+use nova_snark::traits::{ROCircuitTrait, ROConstantsTrait, ROTrait};
 use generic_array::typenum::U24;
 use neptune::{
   circuit2::Elt,
@@ -40,22 +41,13 @@ use neptune::{
   },
   Strength,
 };
+use nova_snark::provider::poseidon::PoseidonRO;
+use nova_snark::provider::poseidon::PoseidonConstantsCircuit;
+//use ::bellperson::solver::SatisfyingAssignment;
+//    constants::NUM_CHALLENGE_BITS,
+//    gadgets::utils::le_bits_to_num,
 
-#[derive(Clone)]
-pub struct PoseidonConstantsCircuit<Scalar: PrimeField>(PoseidonConstants<Scalar, U24>);
-
-impl<Scalar> ROConstantsTrait<Scalar> for PoseidonConstantsCircuit<Scalar>
-where
-  Scalar: PrimeField + PrimeFieldBits,
-{
-  /// Generate Poseidon constants
-  #[allow(clippy::new_without_default)]
-  fn new() -> Self {
-    Self(Sponge::<Scalar, U24>::api_constants(Strength::Standard))
-  }
-}
-
-const NITERATIONS: u32 = 3;
+const NITERATIONS: usize = 2;
 
 #[derive(Clone, Debug)]
 struct Sha256CircuitOrig<Scalar: PrimeField> {
@@ -95,16 +87,20 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	    .map(|b| b.map(Boolean::from))
 	    .collect::<Result<Vec<_>, _>>()?;
 
-//	let hash_bits = sha256(cs.namespace(|| "sha256"), &preimage_bits)?;
-	let niterations: u32 = NITERATIONS;
+	let niterations: usize = NITERATIONS;
 	let hash_bits = sha256iterated(cs.namespace(|| "sha256"), &preimage_bits, niterations)?;
 
 	println!("hash_bits length {:?}", hash_bits.len());
+
+	let i: usize = 0;
+	let hash_bits_slice = &hash_bits[i];
 	
-	for (i, hash_bits) in hash_bits.chunks(256_usize).enumerate() {
+	//for (i, hash_bits_slice) in hash_bits_slice.chunks(256_usize).enumerate() {
+	//for i in hash_bits_slice.chunks(1_usize).enumerate()
+	{	    
 	    let mut num = Num::<Scalar>::zero();
 	    let mut coeff = Scalar::one();
-	    for bit in hash_bits {
+	    for bit in hash_bits_slice {
 		num = num.add_bool_with_coeff(CS::one(), bit, coeff);
 
 		coeff = coeff.double();
@@ -125,7 +121,20 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	}
 
 	// apply Poseidon
+	use ff::Field;
+	use rand::rngs::OsRng;
+	let mut csprng: OsRng = OsRng;
+	type S = pasta_curves::pallas::Scalar;
+	type B = pasta_curves::vesta::Scalar;
+	type G = pasta_curves::pallas::Point;
         let constants = PoseidonConstantsCircuit::new();
+	// let num_absorbs = 32;
+	let num_absorbs = 1;//z_out.len();
+	let mut ro: PoseidonRO<S, B> = PoseidonRO::new(constants.clone(), num_absorbs);
+	// ro.absorb(z_out[0]);
+	//for i in 0..num_absorbs {
+	//    // ro.absorb(z_out[i]);
+	//}
 
 	// sanity check with the hasher
 	let mut hasher = Sha256::new();
@@ -136,12 +145,7 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	    .iter()
 	    .flat_map(|&byte| (0..8).rev().map(move |i| (byte >> i) & 1u8 == 1u8));
 
-	// truncate to the first 256 elements which corresponds to the
-	// first hash value returned by sha256iterated
-	let mut hash_bits_slice = hash_bits;
-	hash_bits_slice.truncate(256);
-
-	for b in &hash_bits_slice {
+	for b in hash_bits_slice {
 	    match b {
 		Boolean::Is(b) => {
 		    assert!(s.next().unwrap() == b.get_value().unwrap());
@@ -155,7 +159,6 @@ impl<Scalar: PrimeField + PrimeFieldBits> StepCircuit<Scalar> for Sha256Circuit<
 	    }
 	}
 
-	println!("hash_bits_slice length {:?}", hash_bits_slice.len());
 	println!("z_out length {:?}", z_out.len());
 	Ok(z_out)
     }
@@ -232,6 +235,7 @@ fn bench_recursive_snark(c: &mut Criterion) {
     .collect::<Vec<_>>();
     */
     /*    
+    */
     let mut group = c.benchmark_group(format!("NovaProve-Sha256-message-len-{}", circuit_primary.preimage.len()));
     group.sample_size(10);
     group.bench_function("Prove", |b| {
@@ -249,5 +253,4 @@ fn bench_recursive_snark(c: &mut Criterion) {
 	})
     });
     group.finish();
-    */
 }
